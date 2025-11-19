@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRI В РЯД</title> <!-- FIX: Title Updated -->
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tone.js for 8-bit sound and music -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+    <!-- Google Font: Ubuntu -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /* --- TRI CORPORATE AESTHETIC --- */
+        
+        body {
+            font-family: 'Ubuntu', sans-serif; /* Brand Font */
+            background-color: #111111; /* Footer Black */
+            color: #EEEEEE; /* Grey Color */
+        }
+
+        /* Technical Title */
+        .tech-title {
+            font-family: 'Ubuntu', sans-serif;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: #E6000F; /* Red Color */
+        }
+
+        /* Main Container Border - Clean, defined border */
+        .tech-frame {
+            border: 1px dashed #EEEEEE; /* Grey Color */
+            background-color: #252525; /* Menu Black */
+            box-shadow: none; /* No shadow */
+            border-radius: 0;
+        }
+
+        /* Grid Background for Blueprint feel - applied to the canvas container */
+        .grid-background {
+            background-color: #252525; /* Menu Black */
+            background-image: 
+                linear-gradient(0deg, transparent 19px, rgba(238, 238, 238, 0.1) 20px),
+                linear-gradient(90deg, transparent 19px, rgba(238, 238, 238, 0.1) 20px);
+            background-size: 20px 20px;
+        }
+
+        /* --- Button Style (Technical Button) --- */
+        .tech-button {
+            background-color: #E6000F; /* Red Color */
+            color: #EEEEEE; /* Grey Color (Light text on dark button) */
+            padding: 10px 20px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            border-radius: 2px;
+            line-height: 1.5;
+            box-shadow: none;
+            text-transform: uppercase;
+            font-family: 'Ubuntu', sans-serif;
+        }
+        .tech-button:hover {
+            background-color: #C0000D; /* Darker Red */
+        }
+        .tech-button.reset {
+            background-color: #6B7280; /* Neutral Grey for reset */
+            color: #EEEEEE;
+        }
+        .tech-button.reset:hover {
+            background-color: #4B5563;
+        }
+        
+        /* Status text for completion */
+        .completion-text {
+            color: #E6000F; /* Red Color */
+            font-weight: bold;
+        }
+        
+        /* Blueprint Callout Label - for control instructions */
+        .control-label {
+            font-size: 11px;
+            font-family: 'Ubuntu', sans-serif;
+            color: #E6000F; /* Red Color */
+        }
+
+        /* Canvas Style - fixed size for game logic, centered in container */
+        #game-canvas {
+            border: 1px solid #E6000F; /* Red Color */
+            box-shadow: 0 0 10px rgba(230, 0, 15, 0.5); /* Red Glow */
+            background: #252525; /* Menu Black */
+            cursor: pointer;
+        }
+    </style>
+    <script>
+        // Layer Data (Only usable Match-3 pieces)
+        const layersData = [
+            { nameRu: "Грунт TRICOL", shortNameRu: "ГРУНТ", color: "#E6000F", index: 0 }, // Brand Red
+            { nameRu: "TRICOL 2K PU SPORT (Клей)", shortNameRu: "КЛЕЙ", color: "#FBBF24", index: 1 }, // Kept Yellow for contrast
+            { nameRu: "Резиновое покрытие / Подложка", shortNameRu: "ПОД-ЛОЖКА", color: "#252525", index: 2 }, // Menu Black
+            { nameRu: "TRICOL 2K PU FLR OPTIFILL 109", shortNameRu: "ПОРО-ЗАПОЛН.", color: "#EEEEEE", index: 3 }, // Grey Color
+            { nameRu: "TRICOL 2K PU FLR SPORT 108", shortNameRu: "НАЛИВНОЙ-ПОЛ", color: "#6B7280", index: 4 }, // Mid Grey (contrast)
+            { nameRu: "TRICOL 2K PU FLR SPORT FINISH 110", shortNameRu: "ФИНИШ", color: "#B0B0B0", index: 5 } // Darker Grey Finish
+        ];
+
+        const NUM_BLOCK_TYPES = layersData.length;
+        const GRID_ROWS = 8;
+        const GRID_COLS = 8;
+        const BLOCK_SIZE = 60; // 60px
+
+        // --- Global Game Variables ---
+        let canvas, ctx;
+        let grid = []; // 2D array of block indices (0 to NUM_BLOCK_TYPES - 1)
+        let score = 0;
+        let movesLeft = 25; // Game limit
+        let selectedBlock = null; // {row, col}
+        let isProcessing = false; // Prevents moves while blocks are falling/clearing
+
+        // --- Global Tone Variables ---
+        let synth; // Synth for background music
+        let matchSynthPool = []; // Pool of synths for match sounds
+        let swapSynthPool = []; // Pool of synths for swap sounds
+        let isMusicPlaying = false;
+        let sequence;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            canvas = document.getElementById('game-canvas');
+            ctx = canvas.getContext('2d');
+            canvas.width = GRID_COLS * BLOCK_SIZE;
+            canvas.height = GRID_ROWS * BLOCK_SIZE;
+
+            const nextLayerButton = document.getElementById('next-layer-button');
+            const scoreDisplay = document.getElementById('score-display');
+            const movesDisplay = document.getElementById('moves-display');
+            const resetButton = document.getElementById('reset-button');
+            const infoText = document.getElementById('info-text');
+            const muteButton = document.getElementById('mute-button');
+            const stepsList = document.getElementById('steps-list'); 
+
+            
+            // --- Sound Functions ---
+            const initAudio = () => {
+                // Background Music Synth (Triangle for softer sound)
+                synth = new Tone.Synth({
+                    oscillator: { type: "triangle" }, 
+                    envelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.1 }
+                }).toDestination();
+                synth.volume.value = -14; 
+
+                // Create a POOL of synths for MATCH sounds (e.g., 5 synths)
+                const poolSize = 5;
+                for (let i = 0; i < poolSize; i++) {
+                    // Match Synths
+                    const matchSynth = new Tone.Synth({
+                        oscillator: { type: "sine" }, // Sine wave for a softer "pop" sound
+                        envelope: { attack: 0.001, decay: 0.1, sustain: 0.0, release: 0.1 }
+                    }).toDestination();
+                    matchSynth.volume.value = -10;
+                    matchSynthPool.push(matchSynth);
+
+                    // Swap Synths
+                    const swapSynth = new Tone.Synth({
+                        oscillator: { type: "sawtooth" },
+                        envelope: { attack: 0.001, decay: 0.1, sustain: 0.0, release: 0.1 }
+                    }).toDestination();
+                    swapSynth.volume.value = -8;
+                    swapSynthPool.push(swapSynth);
+                }
+
+                // Background melody
+                const melody = ["C3", "G2", "E3", "G2", "A3", "G3", "E3", null]; 
+                sequence = new Tone.Sequence((time, note) => {
+                    if (note) {
+                        synth.triggerAttackRelease(note, "8n", time);
+                    }
+                }, melody, "4n").start(0);
+                
+                Tone.Transport.stop();
+            }
+
+            const startMusic = async () => {
+                if (!Tone.context || Tone.context.state === 'suspended') {
+                    // 1. Resume audio context on first user interaction
+                    await Tone.start();
+                }
+                
+                // 2. Only start the transport (music) if it's currently stopped AND intended to be playing
+                if (Tone.Transport.state !== 'started' && isMusicPlaying) {
+                    Tone.Transport.start();
+                    Tone.Transport.loop = true;
+                    Tone.Transport.loopEnd = '2m';
+                    muteButton.textContent = '🔇 МУЗЫКА: ВЫКЛ';
+                    muteButton.classList.remove('reset');
+                }
+            }
+            
+            const toggleMute = () => {
+                if (Tone.context.state !== 'running') {
+                    // Force start context on mute click if suspended
+                    Tone.start();
+                }
+
+                if (isMusicPlaying) {
+                    // PAUSE
+                    Tone.Transport.pause();
+                    isMusicPlaying = false;
+                    muteButton.textContent = '🎶 МУЗЫКА: ВКЛ';
+                    muteButton.classList.add('reset');
+                } else {
+                    // PLAY (if manually muted, resume)
+                    Tone.Transport.start();
+                    isMusicPlaying = true;
+                    muteButton.textContent = '🔇 МУЗЫКА: ВЫКЛ';
+                    muteButton.classList.remove('reset');
+                }
+            }
+
+            const playMatchSfx = () => {
+                // Use the synth pool to avoid scheduling conflicts
+                const availableSynth = matchSynthPool.find(s => s.context.currentTime > s._lastAttack + 0.05) || matchSynthPool[0];
+
+                if (availableSynth && isMusicPlaying) { // Play only if music is active
+                    // Play higher pitched sound for match
+                    availableSynth.triggerAttackRelease("A4", "16n"); 
+                }
+            }
+            
+            const playSwapSfx = () => {
+                // Use the synth pool for swap sounds
+                const availableSynth = swapSynthPool.find(s => s.context.currentTime > s._lastAttack + 0.05) || swapSynthPool[0];
+
+                if (availableSynth && isMusicPlaying) { // Play only if music is active
+                    availableSynth.triggerAttackRelease("C5", "32n"); 
+                }
+            }
+
+            // --- Drawing Functions ---
+
+            /**
+             * Draws a single block at grid position (r, c).
+             */
+            const drawBlock = (r, c, typeIndex) => {
+                if (typeIndex === null) return;
+                
+                const blockData = layersData[typeIndex];
+                const drawX = c * BLOCK_SIZE;
+                const drawY = r * BLOCK_SIZE;
+                
+                // 1. Draw block background
+                ctx.fillStyle = blockData.color;
+                ctx.fillRect(drawX + 2, drawY + 2, BLOCK_SIZE - 4, BLOCK_SIZE - 4);
+
+                // 2. Draw Blueprint outline and shadows
+                ctx.strokeStyle = '#EEEEEE'; // Grey Color outline
+                ctx.lineWidth = 1;
+                ctx.strokeRect(drawX + 2, drawY + 2, BLOCK_SIZE - 4, BLOCK_SIZE - 4);
+                
+                // 3. Draw text label
+                let textColor;
+                if (typeIndex === 0 || typeIndex === 2 || typeIndex === 4 || typeIndex === 5) {
+                    // Red (0), Dark Grey (2), Mid Grey (4), New Darker Grey (5) blocks
+                    textColor = '#EEEEEE'; // Light Text
+                } else {
+                    // Yellow (1), Light Grey (3) blocks
+                    textColor = '#111111'; // Dark Text
+                }
+
+                ctx.fillStyle = textColor;
+                ctx.font = `bold ${BLOCK_SIZE * 0.25}px Ubuntu`; // Brand Font
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+
+                const shortName = blockData.shortNameRu;
+                const parts = shortName.split('-'); // Split the label by the dash for two lines
+
+                if (parts.length > 1) {
+                    // Two lines of text
+                    const lineHeight = BLOCK_SIZE * 0.25;
+                    ctx.fillText(parts[0], drawX + BLOCK_SIZE / 2, drawY + BLOCK_SIZE / 2 - lineHeight / 2);
+                    ctx.fillText(parts[1], drawX + BLOCK_SIZE / 2, drawY + BLOCK_SIZE / 2 + lineHeight / 2);
+                } else {
+                    // One line of text
+                    ctx.fillText(shortName, drawX + BLOCK_SIZE / 2, drawY + BLOCK_SIZE / 2);
+                }
+            };
+
+            /**
+             * Redraws the entire game state.
+             */
+            const draw = () => {
+                // Clear the canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Draw blocks
+                for (let r = 0; r < GRID_ROWS; r++) {
+                    for (let c = 0; c < GRID_COLS; c++) {
+                        drawBlock(r, c, grid[r][c]);
+                    }
+                }
+
+                // Draw selection highlight
+                if (selectedBlock) {
+                    const { row, col } = selectedBlock;
+                    ctx.strokeStyle = '#E6000F'; // Brand Red highlight
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(col * BLOCK_SIZE + 1, row * BLOCK_SIZE + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2);
+                }
+            };
+            
+            // --- Game Logic Functions ---
+
+            /**
+             * Fills the grid with random blocks, ensuring no initial matches.
+             */
+            const generateGrid = () => {
+                const newGrid = [];
+                for (let r = 0; r < GRID_ROWS; r++) {
+                    newGrid[r] = [];
+                    for (let c = 0; c < GRID_COLS; c++) {
+                        let type;
+                        do {
+                            type = Math.floor(Math.random() * NUM_BLOCK_TYPES);
+                        } while (
+                            (c >= 2 && newGrid[r][c-1] === type && newGrid[r][c-2] === type) || // Check horizontal
+                            (r >= 2 && newGrid[r-1][c] === type && newGrid[r-2][c] === type)    // Check vertical
+                        );
+                        newGrid[r][c] = type;
+                    }
+                }
+                return newGrid;
+            };
+
+            /**
+             * Finds all matches (3 or more) in the grid.
+             */
+            const checkMatches = () => {
+                const matches = [];
+
+                // Horizontal check
+                for (let r = 0; r < GRID_ROWS; r++) {
+                    for (let c = 0; c < GRID_COLS - 2; c++) {
+                        const type = grid[r][c];
+                        if (type !== null && grid[r][c+1] === type && grid[r][c+2] === type) {
+                            let matchLength = 3;
+                            while (c + matchLength < GRID_COLS && grid[r][c + matchLength] === type) {
+                                matchLength++;
+                            }
+                            for (let i = 0; i < matchLength; i++) {
+                                matches.push({ row: r, col: c + i });
+                            }
+                        }
+                    }
+                }
+
+                // Vertical check
+                for (let c = 0; c < GRID_COLS; c++) {
+                    for (let r = 0; r < GRID_ROWS - 2; r++) {
+                        const type = grid[r][c];
+                        if (type !== null && grid[r+1][c] === type && grid[r+2][c] === type) {
+                            let matchLength = 3;
+                            while (r + matchLength < GRID_ROWS && grid[r + matchLength][c] === type) {
+                                matchLength++;
+                            }
+                            for (let i = 0; i < matchLength; i++) {
+                                matches.push({ row: r + i, col: c });
+                            }
+                        }
+                    }
+                }
+
+                // Filter unique matches
+                const uniqueMatches = Array.from(new Set(matches.map(m => `${m.row},${m.col}`)))
+                    .map(s => {
+                        const [row, col] = s.split(',').map(Number);
+                        return { row, col };
+                    });
+
+                return uniqueMatches;
+            };
+
+            /**
+             * Swaps two blocks.
+             */
+            const swapBlocks = (r1, c1, r2, c2) => {
+                [grid[r1][c1], grid[r2][c2]] = [grid[r2][c2], grid[r1][c1]];
+                playSwapSfx();
+                draw();
+            };
+
+            /**
+             * Clears matched blocks, drops blocks, and refills.
+             */
+            const processMatches = async () => {
+                isProcessing = true;
+                let matched = true;
+
+                while (matched) {
+                    const matches = checkMatches();
+                    if (matches.length === 0) {
+                        matched = false;
+                        break;
+                    }
+
+                    // 1. Clear matches and update score
+                    matches.forEach(m => {
+                        grid[m.row][m.col] = null;
+                        score++;
+                    });
+                    playMatchSfx();
+                    updateStatus();
+                    draw();
+                    await new Promise(resolve => setTimeout(resolve, 400)); 
+
+                    // 2. Drop blocks
+                    for (let c = 0; c < GRID_COLS; c++) {
+                        let dropQueue = [];
+                        for (let r = GRID_ROWS - 1; r >= 0; r--) {
+                            if (grid[r][c] !== null) {
+                                dropQueue.push(grid[r][c]);
+                            }
+                        }
+                        // Refill column from bottom up with dropped blocks
+                        for (let r = GRID_ROWS - 1; r >= 0; r--) {
+                            grid[r][c] = dropQueue.shift() || null;
+                        }
+                    }
+                    draw();
+                    await new Promise(resolve => setTimeout(resolve, 400)); 
+
+                    // 3. Refill empty spaces
+                    for (let c = 0; c < GRID_COLS; c++) {
+                        for (let r = 0; r < GRID_ROWS; r++) {
+                            if (grid[r][c] === null) {
+                                grid[r][c] = Math.floor(Math.random() * NUM_BLOCK_TYPES);
+                            }
+                        }
+                    }
+                    draw();
+                    await new Promise(resolve => setTimeout(resolve, 400));
+                    // Check for new matches created by refill/drop
+                }
+                
+                isProcessing = false;
+                checkGameOver();
+            };
+
+            /**
+             * Handles mouse click input on the canvas.
+             */
+            const handleClick = (e) => {
+                if (isProcessing || movesLeft <= 0) return;
+                
+                // FIX: Only call startMusic if the context is suspended (first click/browser mandate)
+                // This will NOT restart music if it was paused by the user via the mute button.
+                if (Tone.context.state === 'suspended') {
+                    startMusic(); 
+                }
+
+                const rect = canvas.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const clickY = e.clientY - rect.top;
+
+                const col = Math.floor(clickX / BLOCK_SIZE);
+                const row = Math.floor(clickY / BLOCK_SIZE);
+
+                if (selectedBlock) {
+                    const { row: r1, col: c1 } = selectedBlock;
+                    const r2 = row;
+                    const c2 = col;
+
+                    // Check if adjacent
+                    const isAdjacent = (Math.abs(r1 - r2) + Math.abs(c1 - c2) === 1);
+
+                    if (isAdjacent) {
+                        // 1. Attempt the swap
+                        swapBlocks(r1, c1, r2, c2);
+                        
+                        // 2. Check if the swap creates a match
+                        const matches = checkMatches();
+                        
+                        if (matches.length > 0) {
+                            // Valid move: Process matches
+                            movesLeft--;
+                            processMatches();
+                        } else {
+                            // Invalid move: Swap back
+                            swapBlocks(r1, c1, r2, c2); 
+                        }
+                        // Deselect
+                        selectedBlock = null;
+
+                    } else if (r1 === r2 && c1 === c2) {
+                        // Clicked the same block: Deselect
+                        selectedBlock = null;
+                    } else {
+                        // Clicked a non-adjacent block: Select the new one
+                        selectedBlock = { row, col };
+                    }
+
+                } else {
+                    // Nothing selected: Select the current block
+                    selectedBlock = { row, col };
+                }
+
+                draw();
+            };
+            
+            /**
+             * Checks if the game is over.
+             */
+            const checkGameOver = () => {
+                updateStatus();
+                if (movesLeft <= 0) {
+                    endGame(score);
+                }
+            };
+
+            /**
+             * Ends the game and displays final status.
+             */
+            const endGame = (finalScore) => {
+                isProcessing = true;
+                Tone.Transport.stop(); // Stop music
+
+                infoText.textContent = `ИГРА ОКОНЧЕНА! ВАШ СЧЕТ: ${finalScore} ОЧКОВ.`;
+                if (finalScore >= 50) {
+                    infoText.classList.add('completion-text'); // Will use Brand Red
+                } else {
+                    infoText.classList.add('text-red-500', 'font-bold'); // Standard error red
+                }
+                
+                nextLayerButton.classList.add('hidden');
+            };
+
+            // --- UI Update Functions ---
+
+            /**
+             * Updates the status area.
+             */
+            const updateStatus = () => {
+                scoreDisplay.textContent = score;
+                movesDisplay.textContent = movesLeft;
+                
+                // Update Layers List (Status is static for Match-3)
+                const listHtml = layersData.map((layer, index) => {
+                    return `<li class="p-1 text-sm text-gray-400">
+                                <span style="color: ${layer.color}; font-weight: bold;">■</span> ${layer.nameRu}
+                            </li>`;
+                }).join('');
+                stepsList.innerHTML = listHtml;
+            };
+
+            // --- Initial Setup and Event Listeners ---
+            
+            const initGame = () => {
+                // Reset game state
+                score = 0;
+                movesLeft = 25;
+                selectedBlock = null;
+                isProcessing = false;
+                
+                // 1. Generate grid, ensuring no immediate matches
+                grid = generateGrid();
+                
+                // 2. Reset UI
+                infoText.classList.remove('completion-text', 'text-red-500', 'font-bold');
+                infoText.textContent = 'ЦЕЛЬ: НАБРАТЬ 50 ОЧКОВ ЗА 25 ХОДОВ.';
+                nextLayerButton.textContent = 'START: НАЧАТЬ ИГРУ';
+                nextLayerButton.classList.remove('hidden');
+
+                // 3. Draw initial state
+                draw();
+                updateStatus();
+                
+                // 4. Stop music and set initial state to muted/paused
+                Tone.Transport.stop();
+                isMusicPlaying = false; // Set to false initially
+                muteButton.textContent = '🎶 МУЗЫКА: ВКЛ';
+                muteButton.classList.add('reset');
+            }
+            
+            nextLayerButton.addEventListener('click', () => {
+                // Start button now just forces a one-time music start, enabling clicks
+                if (Tone.context.state === 'suspended') {
+                    Tone.start().then(() => {
+                        Tone.Transport.start();
+                        isMusicPlaying = true;
+                        muteButton.textContent = '🔇 МУЗЫКА: ВЫКЛ';
+                        muteButton.classList.remove('reset');
+                    });
+                }
+                nextLayerButton.classList.add('hidden');
+            });
+
+            resetButton.addEventListener('click', initGame);
+            muteButton.addEventListener('click', toggleMute);
+            canvas.addEventListener('click', handleClick);
+            
+            initAudio(); // Initialize audio context
+            initGame(); // Initial game setup
+        });
+    </script>
+</head>
+<body class="p-8 min-h-screen flex items-start justify-center">
+
+    <div id="app" class="flex flex-col lg:flex-row w-full max-w-6xl space-y-8 lg:space-y-0 lg:space-x-8">
+
+        <!-- Visualization Area -->
+        <div class="lg:w-1/2 w-full flex flex-col items-center">
+            <!-- FIX: Title Updated -->
+            <h1 class="text-3xl mb-4 text-center tech-title">TRI В РЯД</h1>
+            <p id="info-text" class="mt-4 text-base text-white text-center mb-6">ЦЕЛЬ: НАБРАТЬ 50 ОЧКОВ ЗА 25 ХОДОВ.</p>
+            
+            <!-- Technical Screen / Visualization -->
+            <div class="p-6 tech-frame w-full max-w-md h-[480px] flex items-center justify-center overflow-hidden grid-background relative">
+                <!-- Canvas for the Game -->
+                <canvas id="game-canvas" class="bg-transparent"></canvas>
+            </div>
+        </div>
+
+        <!-- Controls and Status Area -->
+        <div class="lg:w-1/2 w-full tech-frame p-6 flex flex-col space-y-6">
+            <h2 class="text-xl font-semibold text-white">СТАТУС / УПРАВЛЕНИЕ</h2>
+            
+            <!-- Game Stats -->
+            <div class="bg-black/20 p-4 rounded-sm border border-gray-700 flex justify-around text-center">
+                <div>
+                    <div class="text-gray-400 text-sm">СЧЕТ (ОЧКИ)</div>
+                    <div id="score-display" class="text-4xl font-bold text-white">0</div>
+                </div>
+                <div>
+                    <div class="text-gray-400 text-sm">ХОДОВ ОСТАЛОСЬ</div>
+                    <div id="moves-display" class="text-4xl font-bold text-white">25</div>
+                </div>
+            </div>
+
+            <!-- Steps List -->
+            <div class="bg-black/20 p-4 rounded-sm border border-gray-700">
+                <h3 class="text-gray-400 text-sm font-medium mb-2">СПЕЦИФИКАЦИЯ СЛОЕВ (ТИПЫ БЛОКОВ)</h3>
+                <ul id="steps-list" class="space-y-2">
+                    <!-- Layers status injected here -->
+                </ul>
+            </div>
+
+            <!-- Controls (Technical Buttons & Info) -->
+            <div id="controls-panel" class="flex flex-col space-y-4 pt-4 border-t border-gray-700">
+                <button id="next-layer-button" class="tech-button">
+                    START: НАЧАТЬ ИГРУ
+                </button>
+
+                <div class="flex flex-col space-y-4">
+                    <div class="flex justify-center space-x-8 text-center bg-black/20 p-3 border border-red-900">
+                        <div class="control-label">
+                            КЛИК <br> ВЫБОР/СМЕНА
+                        </div>
+                    </div>
+                    
+                    <button id="reset-button" class="tech-button reset">
+                        СБРОСИТЬ / НАЧАТЬ ЗАНОВО
+                    </button>
+                    <button id="mute-button" class="tech-button reset">
+                        🎶 МУЗЫКА: ВКЛ
+                    </button>
+                </div>
+            </div>
+            
+            <p class="text-xs text-gray-500 mt-4">
+                * МАТЕРИАЛЫ: TRICOL.
+            </p>
+        </div>
+
+    </div>
+
+</body>
+</html>
