@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сборка Пола 8-Бит (TRICOL)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tone.js for 8-bit sound and music -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+    <style>
+        /* --- NINTENDO/RETRO GAME AESTHETIC --- */
+        
+        body {
+            font-family: 'Inter', monospace; /* Using monospace as a basic pixel substitute */
+            background-color: #222244; /* Dark retro blue/purple */
+            color: #E0E0E0; /* Light gray text */
+        }
+
+        /* Simulated Pixel Text with thick shadow */
+        .pixel-text {
+            font-family: 'Courier New', monospace;
+            text-transform: uppercase;
+            font-weight: 800;
+            /* Layered text shadow for 3D/pixel effect */
+            text-shadow: 2px 2px #4B0082, 4px 4px #000000; 
+        }
+
+        /* Main Container Border - Chunky 8-bit frame */
+        .retro-frame {
+            border: 4px solid #111122; /* Inner dark line */
+            background-color: #4B0082; /* Retro purple background */
+            box-shadow: 
+                -8px -8px 0 0 #A020F0, /* Light top-left shadow */
+                8px 8px 0 0 #000000;    /* Deep black bottom-right shadow */
+            border-radius: 2px;
+        }
+
+        /* --- Layer Visualization --- */
+        .floor-layer {
+            transition: height 0.4s ease-out, opacity 0.4s ease-out;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Concrete pattern simulation (more prominent pixel) */
+        .concrete-texture {
+            background-image: linear-gradient(0deg, rgba(0,0,0,.2) 50%, transparent 50%),
+                              linear-gradient(90deg, rgba(0,0,0,.2) 50%, transparent 50%);
+            background-size: 6px 6px;
+        }
+        
+        /* Ribbed pattern simulation for adhesive - simplified retro color */
+        .ribbed-texture {
+            background-image: repeating-linear-gradient(90deg, #FFD700, #FFD700 3px, #FFA500 3px, #FFA500 6px);
+        }
+
+        /* --- Button Style (Classic Game Button) --- */
+        .retro-button {
+            border: none;
+            background-color: #4CAF50; /* Base color: Green (Go/Start) */
+            color: white;
+            padding: 12px 24px;
+            font-weight: bold;
+            cursor: pointer;
+            text-shadow: 1px 1px #000;
+            transition: all 0.05s;
+            /* Layered shadow for unpressed look */
+            box-shadow: 0 5px 0 0 #388E3C, /* Darker shade below (3D effect) */
+                        0 8px 0 0 #000000; /* Deep black base */
+            border-radius: 4px;
+            line-height: 1;
+        }
+        .retro-button:hover {
+            filter: brightness(1.1);
+        }
+        .retro-button:active {
+            transform: translateY(3px); /* Simulates press down */
+            box-shadow: 0 2px 0 0 #388E3C,
+                        0 5px 0 0 #000000;
+        }
+        .retro-button.red {
+            background-color: #E74C3C;
+            box-shadow: 0 5px 0 0 #C0392B,
+                        0 8px 0 0 #000000;
+        }
+        .retro-button.red:active {
+            box-shadow: 0 2px 0 0 #C0392B,
+                        0 5px 0 0 #000000;
+        }
+        .retro-button.small {
+            padding: 8px 16px;
+            box-shadow: 0 3px 0 0 #388E3C, 0 5px 0 0 #000000;
+        }
+        .retro-button.small:active {
+            box-shadow: 0 1px 0 0 #388E3C, 0 3px 0 0 #000000;
+        }
+        
+        /* Status text for completion */
+        .completion-text {
+            color: #32CD32; /* Lime Green */
+            font-weight: bold;
+            text-shadow: 2px 2px #006400;
+        }
+
+    </style>
+    <script>
+        // Layer Data (Heights increased for better label visibility)
+        const layersData = [
+            // Обновленные названия слоев, согласно предоставленной картинке
+            { nameRu: "Основание (Дерево - Бетон)", shortNameRu: "ОСНОВА", heightPx: 80, colorClass: "bg-gray-700 concrete-texture", texture: "Текстурированный" },
+            { nameRu: "Грунт TRICOL", shortNameRu: "ГРУНТ", heightPx: 8, colorClass: "bg-yellow-600", texture: "Глянцевый" },
+            { nameRu: "TRICOL 2K PU SPORT (Клей для спортивных покрытий)", shortNameRu: "КЛЕЙ 2K PU SPORT", heightPx: 15, colorClass: "bg-yellow-400 ribbed-texture", texture: "Рифленый" },
+            { nameRu: "Резиновое покрытие / Подложка", shortNameRu: "ПОДЛОЖКА", heightPx: 35, colorClass: "bg-gray-800", texture: "Матовый, Толстый" },
+            { nameRu: "TRICOL 2K PU FLR SPORT OPTIFILL 109 (Порозаполнитель)", shortNameRu: "ПОРОЗАПОЛН. 109", heightPx: 10, colorClass: "bg-white", texture: "Гладкий" },
+            { nameRu: "TRICOL 2K PU FLR SPORT 108 (Наливной пол)", shortNameRu: "НАЛИВНОЙ ПОЛ 108", heightPx: 20, colorClass: "bg-gray-500", texture: "Слегка текстурированный" },
+            { nameRu: "TRICOL 2K PU FLR SPORT FINISH 110 (Финишное покрытие)", shortNameRu: "ФИНИШ 110", heightPx: 6, colorClass: "bg-gray-300", texture: "Металлик, Глянцевый" }
+        ];
+
+        let currentLayerIndex = 0;
+        
+        // --- Global Tone Variables ---
+        let synth;
+        let sequence;
+        let sfxSynth;
+        let isMusicPlaying = false;
+
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const floorDisplay = document.getElementById('floor-display');
+            const nextLayerButton = document.getElementById('next-layer-button');
+            const stepsList = document.getElementById('steps-list');
+            const resetButton = document.getElementById('reset-button');
+            const infoText = document.getElementById('info-text');
+            const muteButton = document.getElementById('mute-button');
+
+            // --- Sound Functions ---
+            const initAudio = () => {
+                // Background Music (8-bit style arpeggio)
+                synth = new Tone.Synth({
+                    oscillator: { type: "square" },
+                    envelope: { attack: 0.005, decay: 0.1, sustain: 0.1, release: 0.05 }
+                }).toDestination();
+                synth.volume.value = -12; // Keep background music subtle
+
+                const melody = ["C4", "E4", "G4", "A4", "G4", "E4", "C4", null]; // Simple C Major Arpeggio
+
+                sequence = new Tone.Sequence((time, note) => {
+                    if (note) {
+                        synth.triggerAttackRelease(note, "8n", time);
+                    }
+                }, melody, "4n").start(0);
+                
+                // SFX for placing a layer (higher pitched short triangle beep)
+                sfxSynth = new Tone.Synth({
+                    oscillator: { type: "triangle" },
+                    envelope: { attack: 0.001, decay: 0.1, sustain: 0.0, release: 0.05 }
+                }).toDestination();
+                sfxSynth.volume.value = -6;
+
+                // Stop transport initially
+                Tone.Transport.stop();
+            }
+
+            const startMusic = async () => {
+                try {
+                    // Ensure context is running (requires user interaction)
+                    await Tone.start();
+
+                    if (Tone.Transport.state !== 'started') {
+                        Tone.Transport.start();
+                        Tone.Transport.loop = true;
+                        Tone.Transport.loopEnd = '2m';
+                        isMusicPlaying = true;
+                        muteButton.textContent = '🔇 Выключить Звук';
+                        muteButton.classList.remove('red');
+                    }
+                } catch (e) {
+                    console.error("Failed to start Tone context:", e);
+                }
+            }
+
+            const toggleMute = () => {
+                if (Tone.context.state !== 'running') {
+                    // If audio is not yet running, start it
+                    startMusic();
+                    return;
+                }
+
+                if (isMusicPlaying) {
+                    Tone.Transport.pause();
+                    isMusicPlaying = false;
+                    muteButton.textContent = '🎶 Включить Звук';
+                    muteButton.classList.add('red');
+                } else {
+                    Tone.Transport.start();
+                    isMusicPlaying = true;
+                    muteButton.textContent = '🔇 Выключить Звук';
+                    muteButton.classList.remove('red');
+                }
+            }
+
+            const playLayerSfx = () => {
+                sfxSynth.triggerAttackRelease("G5", "16n");
+            }
+
+
+            // --- Core Functions ---
+
+            /**
+             * Renders the current stack of layers.
+             */
+            const renderFloor = () => {
+                floorDisplay.innerHTML = '';
+                
+                // Render layers already placed (up to currentLayerIndex)
+                for (let i = 0; i <= currentLayerIndex; i++) {
+                    const layer = layersData[i];
+                    const layerDiv = document.createElement('div');
+                    layerDiv.className = `floor-layer w-full ${layer.colorClass} ${i === 0 ? 'rounded-b-lg' : ''} relative`;
+                    layerDiv.style.height = `${layer.heightPx}px`;
+                    layerDiv.style.zIndex = i + 1;
+                    layerDiv.style.boxShadow = `0px -2px 0px 0px rgba(0,0,0,0.5)`; /* Shadow to separate layers */
+
+                    // Adding a small label for the pixel feel
+                    // Use shortNameRu for layer label to ensure it fits
+                    if (i > 0) {
+                        // Position label at the center of the layer for better visibility
+                        const label = document.createElement('span');
+                        label.textContent = layer.shortNameRu; // Use short name
+                        label.className = `absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-mono px-1 py-0.5 text-black/90 bg-yellow-200 rounded-sm`;
+                        layerDiv.appendChild(label);
+                    }
+
+                    floorDisplay.prepend(layerDiv); // Prepend so new layers stack on top visually
+                }
+
+                // Update the maximum height of the display container to prevent layout shift
+                // Total height now is around 174px + 10px padding
+                floorDisplay.style.height = `${layersData.reduce((acc, l) => acc + l.heightPx, 0) + 10}px`; 
+            };
+
+            /**
+             * Updates the status area (buttons, steps list, info text).
+             */
+            const updateStatus = () => {
+                // Update Steps List
+                stepsList.innerHTML = '';
+                layersData.forEach((layer, index) => {
+                    const listItem = document.createElement('li');
+                    listItem.className = `p-1 text-base transition-colors duration-200`;
+
+                    if (index < currentLayerIndex) {
+                        // Already placed
+                        listItem.innerHTML = `<span class="completion-text">★ ${layer.nameRu} [ПОЛОЖЕНО]</span>`;
+                    } else if (index === currentLayerIndex) {
+                        // Current layer to be placed (Base is always already placed)
+                        if (index === 0) {
+                            listItem.innerHTML = `<span class="completion-text">★ ${layer.nameRu} [ОСНОВА]</span>`;
+                        } else {
+                             // Use full name in the status list
+                             listItem.innerHTML = `<span class="text-yellow-300 pixel-text">▶ ${layer.nameRu} [СЛЕДУЮЩИЙ]</span>`;
+                        }
+                    } else {
+                        // Remaining layers
+                        listItem.innerHTML = `<span class="text-gray-400">☐ ${layer.nameRu}</span>`;
+                    }
+                    stepsList.appendChild(listItem);
+                });
+
+                // Update Button and Info Text
+                if (currentLayerIndex < layersData.length - 1) {
+                    // Next layer is available
+                    nextLayerButton.classList.remove('hidden');
+                    // Use full name for the button label
+                    nextLayerButton.textContent = `START: ПОЛОЖИТЬ ${layersData[currentLayerIndex + 1].nameRu}`;
+                    infoText.textContent = `Уровень ${currentLayerIndex + 1}: ${layersData[currentLayerIndex + 1].nameRu}. Нажмите START.`;
+
+                } else if (currentLayerIndex === layersData.length - 1) {
+                    // All layers are placed
+                    nextLayerButton.classList.add('hidden');
+                    infoText.textContent = '🎉 УРОВЕНЬ ПРОЙДЕН! ПИРОГ ПОЛА СОБРАН!';
+                    infoText.classList.add('completion-text');
+                }
+            };
+
+            /**
+             * Handler for the "Next Layer" button.
+             */
+            const handleNextLayer = () => {
+                if (currentLayerIndex < layersData.length - 1) {
+                    // 1. Start Music on first layer placement (after Base)
+                    if (currentLayerIndex === 0) {
+                        startMusic();
+                    }
+
+                    currentLayerIndex++;
+                    renderFloor();
+                    updateStatus();
+                    playLayerSfx(); // Play SFX after successful layer placement
+                }
+            };
+
+            /**
+             * Handler for the "Reset" button.
+             */
+            const handleReset = () => {
+                currentLayerIndex = 0; // Only the base layer
+                renderFloor();
+                updateStatus();
+                infoText.classList.remove('completion-text');
+                infoText.textContent = 'НАЧАЛО ИГРЫ: Установите бетонное основание.';
+                
+                // Stop music and reset mute button
+                Tone.Transport.stop();
+                isMusicPlaying = false;
+                muteButton.textContent = '🎶 Включить Звук';
+                muteButton.classList.add('red');
+            };
+
+            // --- Event Listeners and Initial Setup ---
+            nextLayerButton.addEventListener('click', handleNextLayer);
+            resetButton.addEventListener('click', handleReset);
+            muteButton.addEventListener('click', toggleMute);
+
+            // Audio setup
+            initAudio();
+
+            // Start with only the concrete base (index 0)
+            currentLayerIndex = 0;
+            renderFloor();
+            updateStatus();
+        });
+    </script>
+</head>
+<body class="p-8 min-h-screen flex items-start justify-center">
+
+    <div id="app" class="flex flex-col lg:flex-row w-full max-w-6xl space-y-8 lg:space-y-0 lg:space-x-8">
+
+        <!-- Visualization Area -->
+        <div class="lg:w-1/2 w-full flex flex-col items-center">
+            <h1 class="text-3xl font-bold mb-4 text-red-500 pixel-text">TRICOL CONSTRUCTION</h1>
+            <p id="info-text" class="mt-4 text-xl text-yellow-300 pixel-text text-center mb-6">НАЧАЛО ИГРЫ: Установите бетонное основание.</p>
+            
+            <!-- Game Screen / Visualization -->
+            <!-- Changed h-[420px] to h-[480px] for more vertical space for the thicker layers -->
+            <div class="bg-gray-800 p-6 retro-frame w-full max-w-md h-[480px] flex items-end justify-center overflow-hidden">
+                <!-- Floor Stack Container -->
+                <div id="floor-display" class="relative w-full max-w-[320px] flex flex-col items-center shadow-2xl rounded-b-lg">
+                    <!-- Layers will be prepended here by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls and Status Area -->
+        <div class="lg:w-1/2 w-full retro-frame p-6 flex flex-col space-y-6">
+            <h2 class="text-2xl font-bold text-red-400 pixel-text">ПРОГРЕСС & УПРАВЛЕНИЕ</h2>
+            
+            <!-- Steps List -->
+            <div class="bg-black/50 p-4 rounded-sm border border-yellow-300">
+                <h3 class="text-yellow-300 text-sm pixel-text mb-2">МАТЕРИАЛЫ / УРОВНИ</h3>
+                <ul id="steps-list" class="space-y-2 text-sm">
+                    <!-- Layers status injected here -->
+                </ul>
+            </div>
+
+            <!-- Controls (Classic Game Buttons) -->
+            <div id="controls" class="flex flex-col space-y-4 pt-4 border-t border-yellow-300">
+                <button id="next-layer-button" class="retro-button">
+                    START: ПОЛОЖИТЬ СЛОЙ
+                </button>
+                <div class="flex justify-between space-x-4">
+                    <button id="reset-button" class="retro-button red w-1/2">
+                        SELECT: НАЧАТЬ СНОВА
+                    </button>
+                    <!-- New Mute Button -->
+                    <button id="mute-button" class="retro-button small red w-1/2">
+                        🎶 Включить Звук
+                    </button>
+                </div>
+            </div>
+            
+            <p class="text-xs text-gray-400 mt-4 font-mono">
+                * Визуализация в 8-битном стиле. Толщина условна.
+            </p>
+        </div>
+
+    </div>
+
+</body>
+</html>
